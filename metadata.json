@@ -1,0 +1,7 @@
+{
+  "name": "Litla Sorpa - Voice Assistant",
+  "description": "A real-time voice conversational AI helping users sort garbage into the correct bins using Gemini Native Audio.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
