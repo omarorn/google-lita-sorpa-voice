@@ -17,6 +17,7 @@ export default function App() {
   const [connectionState, setConnectionState] = useState<ConnectionState>(ConnectionState.DISCONNECTED);
   const [logs, setLogs] = useState<LogMessage[]>([]);
   const [volume, setVolume] = useState(0); // For visualizer (0-1)
+  const [textInput, setTextInput] = useState("");
   
   // Refs for audio handling to avoid re-renders
   const inputAudioContextRef = useRef<AudioContext | null>(null);
@@ -71,6 +72,7 @@ export default function App() {
     outputNodeRef.current = null;
     nextStartTimeRef.current = 0;
     setVolume(0);
+    setTextInput("");
   }, []);
 
   const handleConnect = async () => {
@@ -257,6 +259,28 @@ export default function App() {
     }
   };
 
+  const handleSendText = () => {
+    if (!textInput.trim() || !sessionRef.current) return;
+
+    const text = textInput.trim();
+    addLog('user', text);
+
+    sessionRef.current.sendRealtimeInput({
+      content: {
+        role: 'user',
+        parts: [{ text: text }]
+      }
+    });
+
+    setTextInput("");
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleSendText();
+    }
+  };
+
   const triggerFileUpload = () => {
     fileInputRef.current?.click();
   };
@@ -345,17 +369,42 @@ export default function App() {
           )}
         </div>
 
+        {/* Text Input - Only visible when connected */}
+        {connectionState === ConnectionState.CONNECTED && (
+          <div className="flex gap-2 w-full animate-fade-in-up">
+            <input
+              type="text"
+              value={textInput}
+              onChange={(e) => setTextInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Skrifaðu skilaboð..."
+              className="flex-1 bg-slate-700/50 border border-slate-600 rounded-full px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+            />
+            <button
+              onClick={handleSendText}
+              disabled={!textInput.trim()}
+              className="bg-blue-600 text-white rounded-full w-12 h-12 flex items-center justify-center hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-blue-500/25"
+            >
+              <svg className="w-5 h-5 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+              </svg>
+            </button>
+          </div>
+        )}
+
         {/* Hints */}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="bg-slate-700/30 p-3 rounded-xl border border-slate-700/50 text-center">
-            <span className="block text-xs text-slate-500 uppercase tracking-wider mb-1">Prófaðu að spyrja</span>
-            <p className="text-sm text-slate-300">"Hvert fer þessi pítsukassi?"</p>
+        {connectionState !== ConnectionState.CONNECTED && (
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-slate-700/30 p-3 rounded-xl border border-slate-700/50 text-center">
+              <span className="block text-xs text-slate-500 uppercase tracking-wider mb-1">Prófaðu að spyrja</span>
+              <p className="text-sm text-slate-300">"Hvert fer þessi pítsukassi?"</p>
+            </div>
+            <div className="bg-slate-700/30 p-3 rounded-xl border border-slate-700/50 text-center">
+              <span className="block text-xs text-slate-500 uppercase tracking-wider mb-1">Prófaðu að spyrja</span>
+              <p className="text-sm text-slate-300">"Er hægt að endurvinna gler?"</p>
+            </div>
           </div>
-          <div className="bg-slate-700/30 p-3 rounded-xl border border-slate-700/50 text-center">
-            <span className="block text-xs text-slate-500 uppercase tracking-wider mb-1">Prófaðu að spyrja</span>
-            <p className="text-sm text-slate-300">"Er hægt að endurvinna gler?"</p>
-          </div>
-        </div>
+        )}
       </main>
 
       {/* Logs (Hidden mostly, but useful context) */}
