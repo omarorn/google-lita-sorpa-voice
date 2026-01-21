@@ -27,6 +27,7 @@ export default function App() {
   const nextStartTimeRef = useRef<number>(0);
   const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const sessionRef = useRef<any>(null); // Type 'any' used because Session type isn't exported easily yet
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Scroll to bottom of logs
   const logsEndRef = useRef<HTMLDivElement>(null);
@@ -41,8 +42,6 @@ export default function App() {
   const cleanup = useCallback(() => {
     // Close session
     if (sessionRef.current) {
-      // Assuming session has a close method, though API might only have disconnect on client
-      // The client library handles closure via calling disconnect usually, but here we just drop ref
       sessionRef.current = null;
     }
 
@@ -77,7 +76,7 @@ export default function App() {
   const handleConnect = async () => {
     try {
       setConnectionState(ConnectionState.CONNECTING);
-      addLog('system', 'Initializing audio devices...');
+      addLog('system', 'Frumstilli hljóðbúnað...');
 
       // 1. Initialize Audio Contexts
       const inputCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
@@ -97,7 +96,7 @@ export default function App() {
       // 3. Initialize Gemini Client
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       
-      addLog('system', 'Connecting to Gemini Live API...');
+      addLog('system', 'Tengist Gemini Live...');
 
       // 4. Connect to Live API
       const sessionPromise = ai.live.connect({
@@ -107,15 +106,20 @@ export default function App() {
           speechConfig: {
             voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Puck' } }, // Friendly voice
           },
-          systemInstruction: `You are a helpful, friendly, and concise waste management expert for 'Litla Gámaleigan'. 
-          Your goal is to help users sort their garbage into the correct bins. 
-          Use spoken language styles (short sentences, natural pauses).
-          Valid categories are: Plastic, Paper, Metal, Glass, Organic, and General Waste.
-          If unsure, ask for clarification.`,
+          systemInstruction: `Þú ert hjálpsamur og vingjarnlegur sérfræðingur í flokkun sorps fyrir 'Litlu Gámaleiguna'.
+          Hlutverk þitt er að hjálpa notendum að flokka rusl í réttar tunnur.
+          Talaðu alltaf íslensku, nema notandinn ávarpi þig á öðru tungumáli.
+          Ef notandinn byrjar að tala á öðru tungumáli (t.d. ensku), svaraðu þá á því tungumáli og spurðu hvort hann vilji frekar halda áfram á því máli.
+          
+          Þú getur séð myndir sem notandinn sendir. Ef notandinn sendir mynd, greindu hvaða hlutur er á myndinni og segðu í hvaða flokk hann fer.
+          
+          Gildir flokkar eru: Plast, Pappi, Málmur, Gler, Lífrænt og Almennt sorp.
+          Hafðu svörin stutt og í eðlilegum talmálsstíl.
+          Ef þú ert ekki viss, biddu um nánari upplýsingar.`,
         },
         callbacks: {
           onopen: async () => {
-            addLog('system', 'Connection established! Start talking.');
+            addLog('system', 'Tenging komin! Byrjaðu að tala.');
             setConnectionState(ConnectionState.CONNECTED);
 
             // Start Audio Processing Pipeline
@@ -172,32 +176,31 @@ export default function App() {
               sourcesRef.current.add(source);
               
               // Visualizer feedback for output
-              // Note: Accurate output viz requires AnalyserNode on output, simpler strictly mapped here
               setVolume(0.5); // Pulse for AI talking
             }
 
             // Handle Turn Complete (Logging)
             if (message.serverContent?.turnComplete) {
-              addLog('system', 'Model finished response.');
+              addLog('system', 'Svari lokið.');
               setVolume(0); // Reset volume when done
             }
             
             // Handle Interruption
             if (message.serverContent?.interrupted) {
-               addLog('system', 'Interrupted.');
+               addLog('system', 'Gripið fram í.');
                sourcesRef.current.forEach(s => s.stop());
                sourcesRef.current.clear();
                nextStartTimeRef.current = 0;
             }
           },
           onclose: () => {
-            addLog('system', 'Connection closed.');
+            addLog('system', 'Tengingu lokað.');
             setConnectionState(ConnectionState.DISCONNECTED);
             cleanup();
           },
           onerror: (err) => {
             console.error(err);
-            addLog('system', 'Error occurred. See console.');
+            addLog('system', 'Villa kom upp. Skoðaðu console.');
             setConnectionState(ConnectionState.ERROR);
             cleanup();
           }
@@ -209,21 +212,53 @@ export default function App() {
 
     } catch (error) {
       console.error('Connection failed', error);
-      addLog('system', 'Failed to connect.');
+      addLog('system', 'Tenging mistókst.');
       setConnectionState(ConnectionState.ERROR);
       cleanup();
     }
   };
 
   const handleDisconnect = () => {
-    // There isn't a direct "close" on the session object in the snippet, 
-    // usually we just stop sending audio and rely on component unmount or 
-    // closing the context to sever the flow.
-    // However, cleanups call closes context which kills the websocket usually 
-    // if implemented via native streams, but here we just manually cleanup.
     cleanup();
     setConnectionState(ConnectionState.DISCONNECTED);
-    addLog('system', 'Session ended by user.');
+    addLog('system', 'Notandi endaði setu.');
+  };
+
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !sessionRef.current) return;
+
+    try {
+      addLog('system', 'Sendi mynd...');
+      
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const result = e.target?.result as string;
+        // Remove data URL prefix (e.g. "data:image/jpeg;base64,")
+        const base64Data = result.split(',')[1];
+        
+        // Send image to session
+        sessionRef.current.sendRealtimeInput({
+          media: {
+            mimeType: file.type,
+            data: base64Data
+          }
+        });
+        
+        addLog('user', 'Sendi mynd til greiningar');
+        // Reset input
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      };
+      reader.readAsDataURL(file);
+      
+    } catch (error) {
+      console.error("Image upload failed", error);
+      addLog('system', 'Mistókst að senda mynd.');
+    }
+  };
+
+  const triggerFileUpload = () => {
+    fileInputRef.current?.click();
   };
 
   return (
@@ -241,10 +276,10 @@ export default function App() {
         <div className="text-center space-y-2">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-700/50 border border-slate-600 text-xs font-medium text-slate-300">
             <span className={`w-2 h-2 rounded-full ${connectionState === ConnectionState.CONNECTED ? 'bg-green-400 animate-pulse' : 'bg-slate-400'}`}></span>
-            {connectionState === ConnectionState.CONNECTED ? 'Live Session Active' : 'Ready to Connect'}
+            {connectionState === ConnectionState.CONNECTED ? 'Bein tenging virk' : 'Tilbúin að tengjast'}
           </div>
           <h1 className="text-3xl font-bold text-white tracking-tight">Litla Sorpa</h1>
-          <p className="text-slate-400">Ask me where to throw your trash.</p>
+          <p className="text-slate-400">Spurðu mig hvar á að henda ruslinu.</p>
         </div>
 
         {/* Visualizer Area */}
@@ -256,7 +291,7 @@ export default function App() {
           
           {connectionState !== ConnectionState.CONNECTED && (
             <div className="absolute inset-0 flex items-center justify-center text-slate-500 font-mono text-sm">
-              Waiting for input...
+              Smelltu á 'Byrja samtal'...
             </div>
           )}
         </div>
@@ -273,31 +308,52 @@ export default function App() {
                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
                 </svg>
-                Start Conversation
+                Byrja samtal
               </span>
             </button>
           ) : (
-            <button
-              onClick={handleDisconnect}
-              className="inline-flex items-center justify-center px-8 py-4 font-semibold text-white transition-all duration-200 bg-red-500 rounded-full hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-600 focus:ring-offset-slate-900 shadow-lg shadow-red-500/30"
-            >
-              <svg className="w-6 h-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-              End Session
-            </button>
+            <>
+              <button
+                onClick={handleDisconnect}
+                className="inline-flex items-center justify-center px-6 py-4 font-semibold text-white transition-all duration-200 bg-red-500 rounded-full hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-600 focus:ring-offset-slate-900 shadow-lg shadow-red-500/30"
+              >
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+              
+              <button
+                onClick={triggerFileUpload}
+                className="inline-flex items-center justify-center px-6 py-4 font-semibold text-white transition-all duration-200 bg-slate-700 rounded-full hover:bg-slate-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 focus:ring-offset-slate-900 shadow-lg"
+                title="Senda mynd"
+              >
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+              </button>
+              
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                onChange={handleImageUpload} 
+                className="hidden" 
+                accept="image/*"
+                capture="environment"
+              />
+            </>
           )}
         </div>
 
         {/* Hints */}
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-slate-700/30 p-3 rounded-xl border border-slate-700/50 text-center">
-            <span className="block text-xs text-slate-500 uppercase tracking-wider mb-1">Try asking</span>
-            <p className="text-sm text-slate-300">"Where does this pizza box go?"</p>
+            <span className="block text-xs text-slate-500 uppercase tracking-wider mb-1">Prófaðu að spyrja</span>
+            <p className="text-sm text-slate-300">"Hvert fer þessi pítsukassi?"</p>
           </div>
           <div className="bg-slate-700/30 p-3 rounded-xl border border-slate-700/50 text-center">
-            <span className="block text-xs text-slate-500 uppercase tracking-wider mb-1">Try asking</span>
-            <p className="text-sm text-slate-300">"Is this glass bottle recyclable?"</p>
+            <span className="block text-xs text-slate-500 uppercase tracking-wider mb-1">Prófaðu að spyrja</span>
+            <p className="text-sm text-slate-300">"Er hægt að endurvinna gler?"</p>
           </div>
         </div>
       </main>

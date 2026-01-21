@@ -3,7 +3,8 @@ import { AudioVisualizerProps } from '../types';
 
 export const Visualizer: React.FC<AudioVisualizerProps> = ({ isPlaying, volume }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const animationRef = useRef<number>();
+  // Initializing with null to satisfy TypeScript requirement for an initial argument
+  const animationRef = useRef<number | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
